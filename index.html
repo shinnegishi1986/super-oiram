@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Castle Adventure — Mobile Audio Edition</title>
+<title>Castle Adventure — iPad Audio Fix</title>
 <style>
 *{box-sizing:border-box}html,body{margin:0;background:#111627;color:#fff;font-family:system-ui,sans-serif;overscroll-behavior:none}body{min-height:100dvh;display:grid;place-items:center;padding:12px}.game{width:min(1100px,100%);background:#1b2237;border:1px solid #ffffff25;border-radius:16px;overflow:hidden;box-shadow:0 20px 80px #0008}header,footer{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}h1{font-size:18px;margin:0}small,footer{color:#b5c5e0;font-size:12px}nav{display:flex;gap:6px;flex-wrap:wrap}button{font:inherit;font-size:12px;color:#fff;background:#ffffff10;border:1px solid #ffffff30;border-radius:9px;padding:9px 12px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer}button.active{background:#ffd36c;color:#25223a}.viewport{position:relative;background:#000}canvas{display:block;width:100%;aspect-ratio:16/9;touch-action:none}.controls{position:absolute;inset:auto 12px 12px;display:flex;justify-content:space-between;pointer-events:none}.controls div{display:flex;gap:8px}.controls button{width:58px;height:52px;font-size:23px;background:#12244599;border:1px solid #ffffff80;pointer-events:auto;backdrop-filter:blur(6px)}#audioStatus{font-size:11px;color:#a7c1df}@media(hover:hover) and (pointer:fine){.controls{opacity:.25}.controls:hover{opacity:1}}@media(max-width:600px){body{padding:0}.game{border:0;border-radius:0}header,footer{padding:9px}h1{font-size:15px}.controls{inset:auto 8px 8px}.controls button{width:43px;height:39px;font-size:19px}button{padding:8px}footer{font-size:10px}}
 </style>
@@ -32,6 +32,7 @@ const Audio={
  context:null,master:null,music:null,effects:null,enabled:true,interval:null,next:0,tick:0,nodes:new Set(),lastSwim:0,
  ensure(){
   if(!this.enabled)return;
+  configurePlaybackSession();
   try{
    if(!this.context){
     const AC=window.AudioContext||window.webkitAudioContext;
@@ -242,6 +243,71 @@ document.querySelector('#audio').addEventListener('click',toggleSound);
 document.querySelector('#pause').addEventListener('click',()=>{Audio.ensure();pause()});
 function suspend(){clear();if(state==='playing')change('paused');Audio.stop()}
 window.addEventListener('blur',suspend);window.addEventListener('pagehide',suspend);document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();else Audio.updateStatus()});
+
+/* iPad/iPhone playback session and explicit user-gesture audio test. */
+function configurePlaybackSession(){
+ try{
+  if('audioSession' in navigator){
+   navigator.audioSession.type='playback';
+   return navigator.audioSession.type==='playback';
+  }
+ }catch(error){console.warn('Playback session unavailable:',error)}
+ return false;
+}
+configurePlaybackSession();
+
+const testSoundButton=document.createElement('button');
+testSoundButton.id='testSoundButton';
+testSoundButton.type='button';
+testSoundButton.textContent='🔊 Enable / Test Audio';
+document.querySelector('header nav').appendChild(testSoundButton);
+let audioTestInProgress=false;
+
+testSoundButton.addEventListener('click',function(){
+ if(audioTestInProgress)return;
+ Audio.enabled=true;
+ document.querySelector('#audio').textContent='♫ Sound ON';
+ configurePlaybackSession();
+ Audio.ensure();
+ const context=Audio.context;
+ if(!context){
+  statusEl.textContent='Audio unavailable. Try opening the game directly in Safari.';
+  return;
+ }
+ audioTestInProgress=true;
+ testSoundButton.textContent='Testing audio…';
+ function finish(){
+  audioTestInProgress=false;
+  testSoundButton.textContent='🔊 Enable / Test Audio';
+ }
+ function playTest(){
+  if(context.state!=='running'){
+   statusEl.textContent='Audio is '+context.state+'. Tap Enable / Test Audio again.';
+   return;
+  }
+  const start=context.currentTime+.03;
+  Audio.note(523.25,start,.22,'sine',.25);
+  Audio.note(659.25,start+.25,.22,'sine',.25);
+  Audio.note(783.99,start+.50,.35,'sine',.25);
+  if(state==='playing')Audio.start();
+  statusEl.textContent='Audio running — three test notes requested. If silent, check Silent Mode and volume.';
+ }
+ try{
+  // Resume is called inside the trusted click, before any asynchronous work.
+  const resumed=context.resume();
+  Promise.resolve(resumed).then(playTest).catch(error=>{
+   console.warn('Audio resume failed:',error);
+   statusEl.textContent='Audio blocked. Open in Safari and tap this button again.';
+  }).finally(finish);
+ }catch(error){
+  console.warn(error);
+  statusEl.textContent='Could not resume audio. Tap to retry.';
+  finish();
+ }
+});
+document.addEventListener('click',configurePlaybackSession,{capture:true});
+document.addEventListener('touchend',configurePlaybackSession,{capture:true,passive:true});
+
 function frame(now){if(!last)last=now;acc+=Math.min((now-last)/1000,.075);last=now;while(acc>=STEP){update(STEP);acc-=STEP}render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);assets().then(()=>{start(0);change('title')}).catch(e=>{console.error(e);change('error')});
 </script></body></html>
